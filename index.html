@@ -191,7 +191,7 @@ a.btn{display:block;text-align:center;text-decoration:none}
     <input id="hold" type="range" min="5" max="40" step="1" value="12" style="width:100%">
     <label><input type="checkbox" id="loop" checked> 새 사진이 없으면 계속 돌려보기</label>
 
-    <h4>🤖 AI 변환 연결 (선택)</h4>
+    <h4>🤖 AI 변환 연결</h4>
     <label><select id="engine" class="fld" style="flex:1"><option value="ai">AI 우선 (안 되면 필터로 자동 전환)</option><option value="local">항상 필터만 사용</option></select></label>
     <input id="aiUrl" class="fld" placeholder="AI 주소 (Cloudflare Worker URL)">
     <div class="row" style="margin-top:8px"><button class="btn sm sec" id="aiSave">저장</button><button class="btn sm sec" id="aiTest">연결 테스트</button></div>
@@ -3134,7 +3134,8 @@ function startAdmin(){
   const FO=window.FO;
   let people={},state={},shownId=null,shownAt=0,paused=false,queue=[],announced=new Set(),firstPeople=true,busy=false,working=null,showTok=0;
   const cache=new Map();
-  const cfg=()=>({style:state.style||'rococo',hold:+state.hold||12,loop:state.loop!==false,engine:state.engine||'ai',aiUrl:state.aiUrl||localStorage.getItem('fo_ai')||''});
+  const DEFAULT_AI='https://faceoff-ai.rasine7.workers.dev';
+  const cfg=()=>({style:state.style||'rococo',hold:+state.hold||12,loop:state.loop!==false,engine:state.engine||'ai',aiUrl:state.aiUrl===undefined?(localStorage.getItem('fo_ai')||DEFAULT_AI):state.aiUrl});
   // QR + info
   const url=joinUrl();const qr=qrUrl(url);$('#qrWait').src=qr;$('#qrBig').src=qr;$('#joinUrl').textContent=url;$('#joinUrl2').textContent=url;
   $('#roomInfo').textContent='방 이름: '+ROOM+' · 참가 주소: '+url;
@@ -3164,12 +3165,21 @@ function startAdmin(){
     const u=urlOverride||cfg().aiUrl;if(!u)throw new Error('AI 주소 없음');
     const c=document.createElement('canvas');c.width=c.height=512;const x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,512,512);
     const w=img.naturalWidth||img.width,h=img.naturalHeight||img.height,k=Math.min(512/w,512/h);x.drawImage(img,(512-w*k)/2,(512-h*k)/2,w*k,h*k);
-    const body={image:c.toDataURL('image/png').split(',')[1],prompt:'a portrait of a person face, '+style.prompt,negative:FO.NEG,strength:0.72,guidance:7.5,steps:20};
-    const ctl=new AbortController();const t=setTimeout(()=>ctl.abort(),60000);
-    try{const r=await fetch(u,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body),signal:ctl.signal});
-      if(!r.ok)throw new Error('서버 응답 '+r.status);const b=await r.blob();if(!/image/.test(b.type))throw new Error('이미지가 아니에요');
-      return await new Promise((res,rej)=>{const f=new FileReader();f.onload=()=>res(f.result);f.onerror=rej;f.readAsDataURL(b)})
-    }finally{clearTimeout(t)}
+    const png=c.toDataURL('image/png').split(',')[1];
+    const isDark=im=>{const t=document.createElement('canvas');t.width=t.height=16;const tx=t.getContext('2d');tx.drawImage(im,0,0,16,16);const d=tx.getImageData(0,0,16,16).data;let s=0;for(let i=0;i<d.length;i+=4)s+=d[i]+d[i+1]+d[i+2];return s/(256*3)<12};
+    let lastErr='';
+    for(let t=0;t<3;t++){
+      const body={image:png,prompt:'a portrait of a person face, '+style.prompt,negative:FO.NEG,strength:0.78,guidance:2,steps:8,seed:Math.floor(Math.random()*1e9)};
+      const ctl=new AbortController();const to=setTimeout(()=>ctl.abort(),45000);
+      try{const r=await fetch(u,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body),signal:ctl.signal});
+        if(!r.ok){lastErr='서버 응답 '+r.status+' '+(await r.text()).slice(0,80);if(r.status===429||r.status===500&&/4006|limit|quota/i.test(lastErr))break;continue}
+        const b=await r.blob();if(!/image/.test(b.type)){lastErr='이미지가 아니에요';continue}
+        const du=await new Promise((res,rej)=>{const f=new FileReader();f.onload=()=>res(f.result);f.onerror=rej;f.readAsDataURL(b)});
+        const im=await loadImg(du);if(isDark(im)){lastErr='검은 화면 (재시도)';continue}
+        return shrink(im,640,0.88,800000);
+      }catch(e){lastErr=e.name==='AbortError'?'시간 초과':e.message}finally{clearTimeout(to)}
+    }
+    throw new Error(lastErr||'AI 실패');
   }
 
   /* ---- 변환 처리 ---- */
