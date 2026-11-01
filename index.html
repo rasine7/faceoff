@@ -3043,10 +3043,12 @@ const ROOM=cleanRoom(qs.get('r'))||'main';
 const BASE=location.origin+location.pathname;
 const joinUrl=()=>BASE+(ROOM==='main'?'':'?r='+encodeURIComponent(ROOM));
 const rp=p=>`${DB}/rooms/${encodeURIComponent(ROOM)}/${p}.json`;
-async function dbGet(p){const r=await fetch(rp(p));if(!r.ok)throw new Error('GET '+r.status);return r.json()}
-async function dbPut(p,v){const r=await fetch(rp(p),{method:'PUT',body:JSON.stringify(v)});if(!r.ok)throw new Error('PUT '+r.status);return r.json()}
-async function dbPatch(p,v){const r=await fetch(rp(p),{method:'PATCH',body:JSON.stringify(v)});if(!r.ok)throw new Error('PATCH '+r.status);return r.json()}
-async function dbDel(p){const r=await fetch(rp(p),{method:'DELETE'});if(!r.ok)throw new Error('DEL '+r.status)}
+async function fx(url,opt){let last;for(let t=0;t<3;t++){const ctl=new AbortController();const to=setTimeout(()=>ctl.abort(),20000);
+  try{const r=await fetch(url,Object.assign({signal:ctl.signal},opt));clearTimeout(to);return r}catch(e){clearTimeout(to);last=e;await new Promise(r=>setTimeout(r,800))}}throw last}
+async function dbGet(p){const r=await fx(rp(p));if(!r.ok)throw new Error('GET '+r.status);return r.json()}
+async function dbPut(p,v){const r=await fx(rp(p),{method:'PUT',body:JSON.stringify(v)});if(!r.ok)throw new Error('PUT '+r.status);return r.json()}
+async function dbPatch(p,v){const r=await fx(rp(p),{method:'PATCH',body:JSON.stringify(v)});if(!r.ok)throw new Error('PATCH '+r.status);return r.json()}
+async function dbDel(p){const r=await fx(rp(p),{method:'DELETE'});if(!r.ok)throw new Error('DEL '+r.status)}
 function stream(p,cb){
   let data=null,es=null,dead=false;
   const setAt=(path,val)=>{const parts=path.split('/').filter(Boolean);
@@ -3143,6 +3145,7 @@ function startAdmin(){
   let people={},state={},shownId=null,shownAt=0,paused=false,queue=[],announced=new Set(),firstPeople=true,busy=false,working=null,showTok=0;
   const cache=new Map();
   const DEFAULT_AI='https://faceoff-ai.rasine7.workers.dev';
+  const setState=o=>{Object.assign(state,o);paintCfg();return dbPatch('state',o)};
   const cfg=()=>({style:state.style||'rococo',hold:+state.hold||12,loop:state.loop!==false,engine:state.engine||'ai',str:+state.str||58,aiUrl:state.aiUrl===undefined?(localStorage.getItem('fo_ai')||DEFAULT_AI):state.aiUrl});
   // QR + info
   const url=joinUrl();const qr=qrUrl(url);$('#qrWait').src=qr;$('#qrBig').src=qr;$('#joinUrl').textContent=url;$('#joinUrl2').textContent=url;
@@ -3152,17 +3155,17 @@ function startAdmin(){
   function paintCfg(){const c=cfg();document.querySelectorAll('.sbtn').forEach(b=>b.classList.toggle('on',b.dataset.id===c.style));
     $('#hold').value=c.hold;$('#str').value=c.str;$('#strV').textContent=c.str;$('#holdV').textContent=c.hold;$('#loop').checked=c.loop;$('#engine').value=c.engine;if(document.activeElement!==$('#aiUrl'))$('#aiUrl').value=c.aiUrl;
     const st=FO.STYLES.find(s=>s.id===c.style);$('#stChip').textContent=st?st.icon+' '+st.name:''}
-  async function chooseStyle(id){await dbPatch('state',{style:id});state.style=id;paintCfg();
+  async function chooseStyle(id){await setState({style:id});state.style=id;paintCfg();
     if(shownId&&people[shownId]&&people[shownId].st==='done'){redo(shownId,id)}toast('스타일: '+FO.STYLES.find(s=>s.id===id).name)}
   function redo(id,style){return dbPatch('people/'+id,{st:'new',want:style||cfg().style}).catch(()=>{})}
   $('#bRedoCur').onclick=()=>{if(shownId)redo(shownId);else toast('보고 있는 사람이 없어요')};
   $('#bRedoAll').onclick=async()=>{const ids=Object.keys(people).filter(i=>people[i].st==='done');if(!ids.length)return toast('변환된 사진이 없어요');
     for(const i of ids)await redo(i);toast(ids.length+'명 다시 변환해요')};
-  $('#hold').oninput=e=>{$('#holdV').textContent=e.target.value};$('#hold').onchange=e=>dbPatch('state',{hold:+e.target.value});
-  $('#str').oninput=e=>{$('#strV').textContent=e.target.value};$('#str').onchange=e=>dbPatch('state',{str:+e.target.value});
-  $('#loop').onchange=e=>dbPatch('state',{loop:e.target.checked});
-  $('#engine').onchange=e=>dbPatch('state',{engine:e.target.value});
-  $('#aiSave').onclick=async()=>{const u=$('#aiUrl').value.trim();localStorage.setItem('fo_ai',u);await dbPatch('state',{aiUrl:u});$('#aiMsg').textContent=u?'저장했어요. 연결 테스트를 눌러보세요.':'AI 주소를 지웠어요. 필터로만 변환해요.'};
+  $('#hold').oninput=e=>{$('#holdV').textContent=e.target.value};$('#hold').onchange=e=>setState({hold:+e.target.value});
+  $('#str').oninput=e=>{$('#strV').textContent=e.target.value};$('#str').onchange=e=>setState({str:+e.target.value});
+  $('#loop').onchange=e=>setState({loop:e.target.checked});
+  $('#engine').onchange=e=>setState({engine:e.target.value});
+  $('#aiSave').onclick=async()=>{const u=$('#aiUrl').value.trim();localStorage.setItem('fo_ai',u);await setState({aiUrl:u});$('#aiMsg').textContent=u?'저장했어요. 연결 테스트를 눌러보세요.':'AI 주소를 지웠어요. 필터로만 변환해요.'};
   $('#aiTest').onclick=async()=>{const u=$('#aiUrl').value.trim();if(!u){$('#aiMsg').textContent='주소를 먼저 넣어주세요.';return}
     $('#aiMsg').textContent='테스트 중… (10~30초)';
     try{const cv=document.createElement('canvas');cv.width=cv.height=256;const x=cv.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,256,256);x.lineWidth=6;x.strokeStyle='#222';x.beginPath();x.ellipse(128,128,70,90,0,0,7);x.stroke();x.beginPath();x.arc(105,110,8,0,7);x.arc(150,110,8,0,7);x.stroke();x.beginPath();x.arc(128,150,25,0.2,2.9);x.stroke();
@@ -3297,7 +3300,7 @@ function startAdmin(){
   $('#bRoom').onclick=()=>{const v=cleanRoom(prompt('새 방 이름 (영문/숫자/한글, 20자까지)',ROOM));if(v&&v!==ROOM)location.href=BASE+'?r='+encodeURIComponent(v)+'#admin'};
   $('#bReset').onclick=async()=>{if(confirm('이 방의 모든 사진과 결과를 지울까요? (되돌릴 수 없어요)')&&confirm('정말 지울까요?')){await Promise.all([dbDel('people'),dbDel('orig'),dbDel('res')]);shownId=null;queue=[];announced.clear();cache.clear();$('#imgOrig').removeAttribute('src');$('#imgRes').removeAttribute('src');$('#stName').textContent='';toast('초기화했어요')}};
   // 스트림 시작
-  stream('state',v=>{state=v||{};paintCfg()});
+  dbGet('state').then(v=>{state=Object.assign({},v||{},state);paintCfg()}).catch(()=>{});
   stream('people',onPeople);
   if(navigator.wakeLock)navigator.wakeLock.request('screen').catch(()=>{});
   document.addEventListener('visibilitychange',()=>{if(!document.hidden&&navigator.wakeLock)navigator.wakeLock.request('screen').catch(()=>{})});
