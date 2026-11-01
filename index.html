@@ -104,8 +104,6 @@ a.btn{display:block;text-align:center;text-decoration:none}
   <div class="panel" id="pName">
     <h3><span class="step">1</span>내 이름</h3>
     <input id="inName" class="fld" maxlength="12" placeholder="이름을 입력하세요" autocomplete="off">
-    <div style="height:10px"></div>
-    <select id="inTeam" class="fld" style="font-size:16px"></select>
   </div>
 
   <div class="panel" id="pPick">
@@ -151,7 +149,7 @@ a.btn{display:block;text-align:center;text-decoration:none}
 </div>
 
 <div id="admin" hidden>
-  <div class="top"><span class="team" id="stTeam" hidden></span><h1 id="stName"></h1><div id="stChip"></div></div>
+  <div class="top"><h1 id="stName"></h1><div id="stChip"></div></div>
   <div class="cards">
     <figure class="card" id="cardO"><div class="cap">✏️ 손으로 그린 그림</div><div class="imgbox"><img id="imgOrig" alt=""></div></figure>
     <div class="arrow">➜</div>
@@ -191,7 +189,9 @@ a.btn{display:block;text-align:center;text-decoration:none}
     <input id="hold" type="range" min="5" max="40" step="1" value="12" style="width:100%">
     <label><input type="checkbox" id="loop" checked> 새 사진이 없으면 계속 돌려보기</label>
 
-    <h4>🤖 AI 변환 연결</h4>
+    <h4>🤖 AI 변환</h4>
+    <label>변신 정도 <b id="strV">58</b>% <small style="color:var(--mut)">(낮음=내 그림 그대로 / 높음=더 멋지게)</small></label>
+    <input id="str" type="range" min="40" max="85" step="1" value="58" style="width:100%">
     <label><select id="engine" class="fld" style="flex:1"><option value="ai">AI 우선 (안 되면 필터로 자동 전환)</option><option value="local">항상 필터만 사용</option></select></label>
     <input id="aiUrl" class="fld" placeholder="AI 주소 (Cloudflare Worker URL)">
     <div class="row" style="margin-top:8px"><button class="btn sm sec" id="aiSave">저장</button><button class="btn sm sec" id="aiTest">연결 테스트</button></div>
@@ -2994,6 +2994,16 @@ function sCharcoal(A){
   return toCanvas(P,w,h);
 }
 
+function sBase(A){
+  const {w,h,N}=A;
+  const pal={bg:[245,243,238],skin:[238,188,156],hair:[96,66,48],eye:[255,255,255],parts:[[200,110,110],[110,150,200],[130,180,120],[225,190,90],[170,130,190]],own:1};
+  const P=colorPlanes(A,pal);
+  for(let i=0;i<N;i++){if(A.isBg[i])continue;const f=0.88+0.14*sstep(0,0.04*A.mx,A.dist[i]);P[0][i]*=f;P[1][i]*=f;P[2][i]*=f}
+  const g=P.map(p=>gauss(p,w,h,1.2));
+  inkMix(g,A.ink,[50,36,38],0.8);
+  return toCanvas(g,w,h);
+}
+FO.base=sBase;
 FO.STYLES=[
  {id:'rococo',name:'로코코',icon:'🌹',fn:sRococo,prompt:'a beautiful French Rococo portrait painting, soft pastel pink and powder blue, delicate brushwork, ornate gold frame, Fragonard style, elegant, highly detailed face'},
  {id:'3d',name:'3D 캐릭터',icon:'🧸',fn:s3D,prompt:'a cute 3D rendered character portrait, Pixar style, glossy clay material, soft studio lighting, vibrant colors, highly detailed'},
@@ -3059,15 +3069,13 @@ function shrink(img,max,q,maxChars){
   const x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,c.width,c.height);x.imageSmoothingQuality='high';x.drawImage(img,0,0,c.width,c.height);
   let out=c.toDataURL('image/jpeg',q);while(maxChars&&out.length>maxChars&&q>0.4){q-=0.08;out=c.toDataURL('image/jpeg',q)}return out;
 }
-const TEAMS=['조 선택 (선택사항)',...Array.from({length:12},(_,i)=>(i+1)+'조')];
 
 /* ================= 학습자 ================= */
 function learner(){
   $('#learner').hidden=false;
   const KEY='fo_id_'+ROOM;
   let myId=localStorage.getItem(KEY)||'',blobData=null,ss=[];
-  const sel=$('#inTeam');TEAMS.forEach((t,i)=>{const o=document.createElement('option');o.value=i?t:'';o.textContent=t;sel.appendChild(o)});
-  $('#inName').value=localStorage.getItem('fo_name')||'';sel.value=localStorage.getItem('fo_team')||'';
+  $('#inName').value=localStorage.getItem('fo_name')||'';
   const show=(...ids)=>{for(const id of ['pName','pPick','pPrev','pSend','pRes'])$('#'+id).hidden=!ids.includes(id)};
   const onFile=async f=>{if(!f)return;
     const name=$('#inName').value.trim();
@@ -3079,14 +3087,14 @@ function learner(){
   $('#btnRe').onclick=()=>{blobData=null;show('pName','pPick')};
   $('#btnUp').onclick=async()=>{
     const name=$('#inName').value.trim();if(!name){toast('이름을 먼저 입력해 주세요 🙂');$('#inName').focus();return}
-    localStorage.setItem('fo_name',name);localStorage.setItem('fo_team',sel.value);
+    localStorage.setItem('fo_name',name);
     show('pSend');$('#sendMsg').textContent='올리는 중…';
     try{
       if(!myId){myId=uid();localStorage.setItem(KEY,myId)}
       const prev=await dbGet('people/'+myId).catch(()=>null);const rev=((prev&&prev.rev)||0)+1;
       await dbPut('orig/'+myId,blobData.orig);
       await dbDel('res/'+myId).catch(()=>{});
-      await dbPut('people/'+myId,{name,team:sel.value||'',ts:(prev&&prev.ts)||Date.now(),rev,st:'new',th0:blobData.th});
+      await dbPut('people/'+myId,{name,ts:(prev&&prev.ts)||Date.now(),rev,st:'new',th0:blobData.th});
       watch();
     }catch(e){show('pName','pPrev');toast('올리기에 실패했어요. 인터넷을 확인하고 다시 눌러주세요.',4000)}
   };
@@ -3135,14 +3143,14 @@ function startAdmin(){
   let people={},state={},shownId=null,shownAt=0,paused=false,queue=[],announced=new Set(),firstPeople=true,busy=false,working=null,showTok=0;
   const cache=new Map();
   const DEFAULT_AI='https://faceoff-ai.rasine7.workers.dev';
-  const cfg=()=>({style:state.style||'rococo',hold:+state.hold||12,loop:state.loop!==false,engine:state.engine||'ai',aiUrl:state.aiUrl===undefined?(localStorage.getItem('fo_ai')||DEFAULT_AI):state.aiUrl});
+  const cfg=()=>({style:state.style||'rococo',hold:+state.hold||12,loop:state.loop!==false,engine:state.engine||'ai',str:+state.str||58,aiUrl:state.aiUrl===undefined?(localStorage.getItem('fo_ai')||DEFAULT_AI):state.aiUrl});
   // QR + info
   const url=joinUrl();const qr=qrUrl(url);$('#qrWait').src=qr;$('#qrBig').src=qr;$('#joinUrl').textContent=url;$('#joinUrl2').textContent=url;
   $('#roomInfo').textContent='방 이름: '+ROOM+' · 참가 주소: '+url;
   // style grid
   const g=$('#sGrid');FO.STYLES.forEach(s=>{const b=document.createElement('button');b.className='sbtn';b.dataset.id=s.id;b.innerHTML='<i>'+s.icon+'</i>'+s.name;b.onclick=()=>chooseStyle(s.id);g.appendChild(b)});
   function paintCfg(){const c=cfg();document.querySelectorAll('.sbtn').forEach(b=>b.classList.toggle('on',b.dataset.id===c.style));
-    $('#hold').value=c.hold;$('#holdV').textContent=c.hold;$('#loop').checked=c.loop;$('#engine').value=c.engine;if(document.activeElement!==$('#aiUrl'))$('#aiUrl').value=c.aiUrl;
+    $('#hold').value=c.hold;$('#str').value=c.str;$('#strV').textContent=c.str;$('#holdV').textContent=c.hold;$('#loop').checked=c.loop;$('#engine').value=c.engine;if(document.activeElement!==$('#aiUrl'))$('#aiUrl').value=c.aiUrl;
     const st=FO.STYLES.find(s=>s.id===c.style);$('#stChip').textContent=st?st.icon+' '+st.name:''}
   async function chooseStyle(id){await dbPatch('state',{style:id});state.style=id;paintCfg();
     if(shownId&&people[shownId]&&people[shownId].st==='done'){redo(shownId,id)}toast('스타일: '+FO.STYLES.find(s=>s.id===id).name)}
@@ -3151,6 +3159,7 @@ function startAdmin(){
   $('#bRedoAll').onclick=async()=>{const ids=Object.keys(people).filter(i=>people[i].st==='done');if(!ids.length)return toast('변환된 사진이 없어요');
     for(const i of ids)await redo(i);toast(ids.length+'명 다시 변환해요')};
   $('#hold').oninput=e=>{$('#holdV').textContent=e.target.value};$('#hold').onchange=e=>dbPatch('state',{hold:+e.target.value});
+  $('#str').oninput=e=>{$('#strV').textContent=e.target.value};$('#str').onchange=e=>dbPatch('state',{str:+e.target.value});
   $('#loop').onchange=e=>dbPatch('state',{loop:e.target.checked});
   $('#engine').onchange=e=>dbPatch('state',{engine:e.target.value});
   $('#aiSave').onclick=async()=>{const u=$('#aiUrl').value.trim();localStorage.setItem('fo_ai',u);await dbPatch('state',{aiUrl:u});$('#aiMsg').textContent=u?'저장했어요. 연결 테스트를 눌러보세요.':'AI 주소를 지웠어요. 필터로만 변환해요.'};
@@ -3163,13 +3172,13 @@ function startAdmin(){
   /* ---- AI (Cloudflare Worker) ---- */
   async function aiConvert(img,style,urlOverride){
     const u=urlOverride||cfg().aiUrl;if(!u)throw new Error('AI 주소 없음');
-    const c=document.createElement('canvas');c.width=c.height=512;const x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,512,512);
+    const c=document.createElement('canvas');c.width=c.height=512;const x=c.getContext('2d');x.fillStyle='#f5f3ee';x.fillRect(0,0,512,512);
     const w=img.naturalWidth||img.width,h=img.naturalHeight||img.height,k=Math.min(512/w,512/h);x.drawImage(img,(512-w*k)/2,(512-h*k)/2,w*k,h*k);
     const png=c.toDataURL('image/png').split(',')[1];
     const isDark=im=>{const t=document.createElement('canvas');t.width=t.height=16;const tx=t.getContext('2d');tx.drawImage(im,0,0,16,16);const d=tx.getImageData(0,0,16,16).data;let s=0;for(let i=0;i<d.length;i+=4)s+=d[i]+d[i+1]+d[i+2];return s/(256*3)<12};
     let lastErr='';
     for(let t=0;t<3;t++){
-      const body={image:png,prompt:'a portrait of a person face, '+style.prompt,negative:FO.NEG,strength:0.78,guidance:2,steps:8,seed:Math.floor(Math.random()*1e9)};
+      const body={image:png,prompt:'a portrait of a person, '+style.prompt+', same face and pose as the input',negative:FO.NEG,strength:cfg().str/100,guidance:2,steps:8,seed:Math.floor(Math.random()*1e9)};
       const ctl=new AbortController();const to=setTimeout(()=>ctl.abort(),45000);
       try{const r=await fetch(u,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body),signal:ctl.signal});
         if(!r.ok){lastErr='서버 응답 '+r.status+' '+(await r.text()).slice(0,80);if(r.status===429||r.status===500&&/4006|limit|quota/i.test(lastErr))break;continue}
@@ -3197,8 +3206,9 @@ function startAdmin(){
       await dbPatch('people/'+id,{st:'working',wts:Date.now()});
       const orig=await dbGet('orig/'+id);if(!orig)throw new Error('원본 없음');
       const img=await loadImg(orig);let out=null,eng='local';const c=cfg();
-      if(c.engine==='ai'&&c.aiUrl){try{out=await aiConvert(img,style);eng='ai'}catch(e){console.warn('AI 실패, 필터로 전환',e)}}
-      if(!out){await sleep(30);const A=FO.analyze(FO.fitCanvas(img,720));await sleep(10);const cv=FO.render(style.id,A);out=cv.toDataURL('image/jpeg',0.86);
+      await sleep(20);const A=FO.analyze(FO.fitCanvas(img,720));
+      if(c.engine==='ai'&&c.aiUrl){try{out=await aiConvert(FO.base(A),style);eng='ai'}catch(e){console.warn('AI 실패, 필터로 전환',e)}}
+      if(!out){await sleep(10);const cv=FO.render(style.id,A);out=cv.toDataURL('image/jpeg',0.86);
         if(out.length>850000)out=cv.toDataURL('image/jpeg',0.7)}
       const th=shrink(await loadImg(out),140,0.6,0);
       await dbPut('res/'+id,out);
@@ -3232,7 +3242,7 @@ function startAdmin(){
     $('#cnt').textContent='('+list().length+'명)';const L=$('#plist');L.innerHTML='';
     const stn={new:'대기',working:'변환중',done:'완료',err:'오류'};
     for(const p of list()){const r=document.createElement('div');r.className='lrow';
-      r.innerHTML='<img src="'+(p.th||p.th0||'')+'" alt=""><div class="nm">'+esc(p.name||'')+(p.team?' <small>('+esc(p.team)+')</small>':'')+'<br><small class="st-'+p.st+'">'+(stn[p.st]||p.st)+(p.hide?' · 숨김':'')+(p.eng==='ai'?' · AI':'')+'</small></div>'
+      r.innerHTML='<img src="'+(p.th||p.th0||'')+'" alt=""><div class="nm">'+esc(p.name||'')+'<br><small class="st-'+p.st+'">'+(stn[p.st]||p.st)+(p.hide?' · 숨김':'')+(p.eng==='ai'?' · AI':'')+'</small></div>'
         +'<button data-a="view">보기</button><button data-a="redo">다시</button><button data-a="hide">'+(p.hide?'표시':'숨김')+'</button><button data-a="del">삭제</button>';
       r.querySelectorAll('button').forEach(b=>b.onclick=()=>rowAct(p,b.dataset.a));L.appendChild(r)}
   }
@@ -3247,7 +3257,6 @@ function startAdmin(){
     const p=people[id];if(!p)return;const tok=++showTok;shownId=id;shownAt=Date.now();
     $('#waiting').hidden=true;
     $('#stName').textContent=(p.name||'')+' 님';$('#stName').style.animation='none';void $('#stName').offsetWidth;$('#stName').style.animation='';
-    $('#stTeam').hidden=!p.team;$('#stTeam').textContent=p.team||'';
     const st=FO.STYLES.find(s=>s.id===p.style);$('#capRes').textContent=st?st.icon+' '+st.name+' 스타일로 변환':'✨ 변환';
     $('#stChip').textContent=st?st.icon+' '+st.name:'';
     const ro=$('#imgRes');ro.classList.remove('show');$('#loading').hidden=false;
@@ -3279,7 +3288,7 @@ function startAdmin(){
   /* ---- 도구 ---- */
   $('#testFile').onchange=async e=>{const f=e.target.files[0];e.target.value='';if(!f)return;
     try{const u=URL.createObjectURL(f);const img=await loadImg(u);const id=uid();
-      await dbPut('orig/'+id,shrink(img,1000,0.8,520000));await dbPut('people/'+id,{name:'테스트'+(Object.keys(people).length+1),team:'',ts:Date.now(),rev:1,st:'new',th0:shrink(img,140,0.6,0)});toast('테스트 사진을 올렸어요')}catch(er){toast('실패: '+er.message)}};
+      await dbPut('orig/'+id,shrink(img,1000,0.8,520000));await dbPut('people/'+id,{name:'테스트'+(Object.keys(people).length+1),ts:Date.now(),rev:1,st:'new',th0:shrink(img,140,0.6,0)});toast('테스트 사진을 올렸어요')}catch(er){toast('실패: '+er.message)}};
   $('#bZip').onclick=async()=>{const d=list().filter(p=>p.st==='done');if(!d.length)return toast('저장할 결과가 없어요');toast('압축 중… 잠시만요',8000);
     const files=[];let n=0;for(const p of d){n++;const nm=String(n).padStart(2,'0')+'_'+(p.name||'이름없음').replace(/[\\/:*?"<>|]/g,'_');
       const [o,r]=await Promise.all([dbGet('orig/'+p.id),dbGet('res/'+p.id)]);const sn=(FO.STYLES.find(s=>s.id===p.style)||{}).name||'변환';
